@@ -1708,12 +1708,12 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     <div class="form-row cols-3">
       <div class="form-group"><label class="j-label">Forma de Pagamento</label>
         <select class="j-select" id="nfPgtoForma" onchange="window.checkPgtoNF()">
-          <option value="Dinheiro">Dinheiro</option><option value="PIX">PIX</option><option value="Boleto">Boleto (Pendente)</option><option value="Parcelado">Parcelado (Títulos)</option><option value="AgrupamentoPeriodo">Agrupamento por período</option>
+          <option value="Dinheiro">Dinheiro</option><option value="PIX">PIX</option><option value="Cartão de Débito">Cartão de Débito</option><option value="Cartão de Crédito">Cartão de Crédito</option><option value="Boleto">Boleto (Pendente)</option><option value="Parcelado">Parcelado (Títulos)</option><option value="AgrupamentoPeriodo">Agrupamento por período</option>
         </select>
       </div>
       <div class="form-group"><label class="j-label">Vencimento</label><input type="date" class="j-input" id="nfVenc"></div>
       <div class="form-group" id="divParcelasNF" style="display:none;"><label class="j-label">Parcelas</label>
-        <select class="j-select" id="nfParcelas"><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option><option value="6">6x</option></select>
+        <select class="j-select" id="nfParcelas"><option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option><option value="5">5x</option><option value="6">6x</option><option value="7">7x</option><option value="8">8x</option><option value="9">9x</option><option value="10">10x</option></select>
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;align-items:center;gap:16px;padding:12px;background:rgba(255,59,59,0.04);border:1px dashed rgba(255,59,59,0.2);border-radius:3px;">

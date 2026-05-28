@@ -497,6 +497,51 @@
     const vinc = split.querySelector('.nf-split-vinculo');
     if(vinc) vinc.value = [placa, 'OS ' + String(os.id || '').slice(-6).toUpperCase()].filter(Boolean).join(' / ');
   };
+  function formaPagamentoNFNorm(forma){
+    return String(forma || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+  function formaPagamentoNFParcelavel(forma){
+    const f = formaPagamentoNFNorm(forma);
+    return f.includes('boleto') || f.includes('parcelado') || f.includes('credito');
+  }
+  function formaPagamentoNFAVista(forma){
+    const f = formaPagamentoNFNorm(forma);
+    return f.includes('pix') || f.includes('dinheiro') || f.includes('debito');
+  }
+  function ensureFormaPagamentoNFOptions(){
+    const sel = $('nfPgtoForma');
+    if(!sel) return;
+    const atual = sel.value || 'Dinheiro';
+    const opts = [
+      ['Dinheiro','Dinheiro'],
+      ['PIX','PIX'],
+      ['Cartão de Débito','Cartão de Débito'],
+      ['Cartão de Crédito','Cartão de Crédito'],
+      ['Boleto','Boleto (Pendente)'],
+      ['Parcelado','Parcelado (Títulos)'],
+      ['AgrupamentoPeriodo','Agrupamento por período']
+    ];
+    opts.forEach(([value,label]) => {
+      if(!sel.querySelector(`option[value="${value}"]`)){
+        sel.insertAdjacentHTML('beforeend', `<option value="${esc(value)}">${esc(label)}</option>`);
+      }
+    });
+    if(atual && sel.querySelector(`option[value="${atual}"]`)) sel.value = atual;
+  }
+  function ensureParcelasNFOptions(minParcelas){
+    const sel = $('nfParcelas');
+    if(!sel) return;
+    const atual = parseInt(sel.value || '1', 10) || 1;
+    const limite = Math.max(10, parseInt(minParcelas || 0, 10) || 0);
+    const desejado = Math.max(limite, atual);
+    sel.innerHTML = '';
+    for(let i=1;i<=desejado;i++){
+      sel.insertAdjacentHTML('beforeend', `<option value="${i}">${i}x</option>`);
+    }
+    sel.value = String(Math.min(Math.max(atual, 1), desejado));
+  }
   function renderParcels(dups){
     let box = $('nfParcelasBox');
     if(!box){
@@ -541,9 +586,11 @@
     box.style.display = show ? 'block' : 'none';
   }
   function gerarParcelasManuais(){
+    ensureFormaPagamentoNFOptions();
+    ensureParcelasNFOptions();
     const forma = getVal('nfPgtoForma');
     if(forma === 'AgrupamentoPeriodo'){ renderParcels([]); mostrarAgrupamentoPeriodoNF(true); return; }
-    if(!['Boleto','Parcelado'].includes(forma)){ renderParcels([]); return; }
+    if(!formaPagamentoNFParcelavel(forma)){ renderParcels([]); return; }
     const n = parseInt(getVal('nfParcelas') || '1',10) || 1;
     const base = getVal('nfVenc') || isoToday();
     const total = calcTotaisNF().totalFiscal;
@@ -579,10 +626,12 @@
     if($('nfParcelasBox')?.style.display === 'block' && !(W._nfeProData?.cobranca?.duplicatas || []).length) gerarParcelasManuais();
   };
   W.checkPgtoNF = function(){
+    ensureFormaPagamentoNFOptions();
+    ensureParcelasNFOptions();
     const forma = getVal('nfPgtoForma');
-    if($('divParcelasNF')) $('divParcelasNF').style.display = ['Parcelado','Boleto'].includes(forma) ? 'block' : 'none';
+    if($('divParcelasNF')) $('divParcelasNF').style.display = formaPagamentoNFParcelavel(forma) ? 'block' : 'none';
     mostrarAgrupamentoPeriodoNF(forma === 'AgrupamentoPeriodo');
-    if(['Parcelado','Boleto','AgrupamentoPeriodo'].includes(forma)) gerarParcelasManuais(); else renderParcels([]);
+    if(formaPagamentoNFParcelavel(forma) || forma === 'AgrupamentoPeriodo') gerarParcelasManuais(); else renderParcels([]);
   };
   function preencherFornecedorTemporario(fornec){
     if(!$('nfFornec') || !fornec) return;
@@ -812,10 +861,10 @@
     if($('containerItensNF')) $('containerItensNF').innerHTML = '';
     if($('nfTotal')) $('nfTotal').textContent = '0,00';
     if($('nfPgtoForma')) {
-      if(!$('nfPgtoForma').querySelector('option[value="AgrupamentoPeriodo"]')) $('nfPgtoForma').insertAdjacentHTML('beforeend','<option value="AgrupamentoPeriodo">Agrupamento por periodo</option>');
+      ensureFormaPagamentoNFOptions();
       $('nfPgtoForma').value = 'Dinheiro';
     }
-    if($('nfParcelas')) { if(!$('nfParcelas').querySelector('option[value="1"]')) $('nfParcelas').insertAdjacentHTML('afterbegin','<option value="1">1x</option>'); $('nfParcelas').value='1'; $('nfParcelas').onchange = gerarParcelasManuais; }
+    if($('nfParcelas')) { ensureParcelasNFOptions(); $('nfParcelas').value='1'; $('nfParcelas').onchange = gerarParcelasManuais; }
     if($('nfVenc')) $('nfVenc').onchange = gerarParcelasManuais;
     setTotaisFiscaisNF({ vFrete:0, vSeg:0, vOutro:0, descontoFiscalExtra:0, vNF:0 }, { manualTotal:false, forceTotal:true });
     mostrarAgrupamentoPeriodoNF(false);
@@ -845,7 +894,7 @@
         renderDevolucaoBox(nfe);
         if(nfe.cobranca.duplicatas.length){
           if($('nfPgtoForma')) $('nfPgtoForma').value = 'Boleto';
-          if($('nfParcelas')) { if(!$('nfParcelas').querySelector(`option[value="${nfe.cobranca.duplicatas.length}"]`)) $('nfParcelas').insertAdjacentHTML('beforeend', `<option value="${nfe.cobranca.duplicatas.length}">${nfe.cobranca.duplicatas.length}x</option>`); $('nfParcelas').value = String(nfe.cobranca.duplicatas.length); }
+          if($('nfParcelas')) { ensureParcelasNFOptions(nfe.cobranca.duplicatas.length); $('nfParcelas').value = String(nfe.cobranca.duplicatas.length); }
           setVal('nfVenc', nfe.cobranca.duplicatas[0].vencimento || '');
           renderParcels(nfe.cobranca.duplicatas);
         } else {
@@ -961,6 +1010,14 @@
   }
   function normalizePlateNF(v){
     return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+  function extrairPlacasTextoNF(){
+    const texto = Array.from(arguments).map(v => String(v || '').toUpperCase()).join(' ');
+    const limpo = texto.replace(/[^A-Z0-9]+/g, ' ');
+    const diretas = limpo.match(/[A-Z]{3}[0-9][A-Z0-9][0-9]{2}/g) || [];
+    const compactado = normalizePlateNF(texto);
+    const compactas = compactado.match(/[A-Z]{3}[0-9][A-Z0-9][0-9]{2}/g) || [];
+    return Array.from(new Set(diretas.concat(compactas).map(normalizePlateNF).filter(Boolean)));
   }
   function normalizeTextNF(v){
     return String(v || '')
@@ -1080,15 +1137,17 @@
   async function resolverOSDestinoNF(item){
     if (item.osId) return carregarOSNF(item.osId);
     const lista = (W.J?.os || []).filter(osEmAtendimentoNF);
-    const placa = normalizePlateNF(item.placa || item.vinculo || '');
-    if (placa) {
-      const porPlaca = lista
-        .filter(o => {
-          const p = placaDaOSNF(o);
-          return p && (p === placa || p.includes(placa) || placa.includes(p));
-        })
-        .sort(ordenarOSDestinoNF);
-      if (porPlaca[0]?.id) return carregarOSNF(porPlaca[0].id);
+    const placas = extrairPlacasTextoNF(item.placa, item.vinculo);
+    for (const placa of placas) {
+      if (placa) {
+        const porPlaca = lista
+          .filter(o => {
+            const p = placaDaOSNF(o);
+            return p && (p === placa || p.includes(placa) || placa.includes(p));
+          })
+          .sort(ordenarOSDestinoNF);
+        if (porPlaca[0]?.id) return carregarOSNF(porPlaca[0].id);
+      }
     }
     const termo = normalizeTextNF(item.vinculo || item.osId || '');
     if (termo) {
@@ -1165,15 +1224,23 @@
   }
   async function registrarPecasReaisOSNF(batch, itens, nfRef, nfPayload, fornecedorId, fornecedorNome){
     const porOS = new Map();
+    const semDestino = [];
     for (const item of itens) {
       if (!destinoVinculadoNF(item)) continue;
       const os = await resolverOSDestinoNF(item);
-      if (!os?.id) continue;
+      if (!os?.id) {
+        semDestino.push(item);
+        continue;
+      }
       item.osId = os.id;
       item.placa = item.placa || placaDaOSNF(os);
       const entry = porOS.get(os.id) || { os, pecas: [] };
       entry.pecas.push(pecaRealFromNF(item, os, nfRef, nfPayload, fornecedorId, fornecedorNome));
       porOS.set(os.id, entry);
+    }
+    if (semDestino.length) {
+      const resumo = semDestino.slice(0, 5).map(i => `${i.codigo || i.codigoFornecedor || 'sem codigo'} - ${i.descricao || i.desc || 'peca sem descricao'} (${i.vinculo || i.placa || 'sem placa/O.S.'})`).join(' | ');
+      throw new Error(`Existem ${semDestino.length} item(ns) marcados para O.S./placa sem O.S. em atendimento resolvida. Selecione a O.S. no campo da peça antes de finalizar. ${resumo}`);
     }
     const fv = firebaseFieldValueNF();
     let totalPecas = 0;
@@ -1469,7 +1536,13 @@
       return;
     }
     const itensOperacionais = expandirItensPorDestinoNF(itens);
-    const vinculosOS = await registrarPecasReaisOSNF(batch, itensOperacionais, nfRef, nfPayload, fornecedorId, fornecedorNome);
+    let vinculosOS;
+    try {
+      vinculosOS = await registrarPecasReaisOSNF(batch, itensOperacionais, nfRef, nfPayload, fornecedorId, fornecedorNome);
+    } catch(e) {
+      if(W.toast) W.toast(e.message || String(e), 'warn'); else alert(e.message || e);
+      return;
+    }
     batch.set(nfRef, nfPayload);
     for(const item of itens){
       const existente = (W.J?.estoque || []).find(p => String(p.codigo||p.oem||'').toLowerCase() === String(item.codigo||'').toLowerCase() && item.codigo) || (W.J?.estoque || []).find(p => String(p.desc||'').toLowerCase() === String(item.descricao||'').toLowerCase());
@@ -1493,10 +1566,10 @@
     }
     const parcelas = collectParcelas();
     const forma = getVal('nfPgtoForma') || 'Dinheiro';
-    const formaNorm = String(forma).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const formaAVista = formaNorm.includes('pix') || formaNorm.includes('dinheiro') || formaNorm.includes('debito');
+    const formaNorm = formaPagamentoNFNorm(forma);
+    const formaAVista = formaPagamentoNFAVista(forma);
     const formaAgrupamentoPeriodo = forma === 'AgrupamentoPeriodo' || formaNorm.includes('agrupamento');
-    const formaPermiteParcelas = !formaAgrupamentoPeriodo && (formaNorm.includes('boleto') || formaNorm.includes('parcelado'));
+    const formaPermiteParcelas = !formaAgrupamentoPeriodo && formaPagamentoNFParcelavel(forma);
     const parcelasFinanceiras = formaPermiteParcelas && !formaAVista ? parcelas : [];
     const statusFinanceiro = formaAVista ? 'Pago' : 'Pendente';
     if(formaAgrupamentoPeriodo){
