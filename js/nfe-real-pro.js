@@ -1113,10 +1113,24 @@
     return value;
   }
   function fornecedorNomeNF(nfe, fornecedorId){
-    const local = (W.J?.fornecedores || []).find(f => f.id === fornecedorId) || null;
+    const local = (W.J?.fornecedores || []).find(f => String(f.id) === String(fornecedorId)) || null;
     const optText = $('nfFornec')?.selectedOptions?.[0]?.textContent || '';
     const optClean = optText.replace(/\s+[-—].*$/g, '').replace(/\s+\(novo\)$/i, '').trim();
-    return nfe?.fornecedor?.nome || local?.nome || local?.razao || optClean || 'Fornecedor';
+    return nfe?.fornecedor?.nome || local?.nome || local?.razao || local?.razaoSocial || local?.fantasia || local?.nomeFantasia || optClean || 'Fornecedor';
+  }
+  function fornecedorSnapshotNF(nfe, fornecedorId, nomeFallback){
+    if (nfe?.fornecedor) return nfe.fornecedor;
+    const local = (W.J?.fornecedores || []).find(f => String(f.id) === String(fornecedorId)) || {};
+    return cleanFirestoreNF({
+      id: fornecedorId || local.id || '',
+      nome: local.nome || local.razao || local.razaoSocial || nomeFallback || '',
+      razao: local.razao || local.razaoSocial || local.nome || nomeFallback || '',
+      fantasia: local.fantasia || local.nomeFantasia || '',
+      cnpj: local.cnpj || local.doc || local.documento || local.cpfCnpj || '',
+      doc: local.doc || local.documento || local.cpfCnpj || local.cnpj || local.cpf || '',
+      telefone: local.telefone || local.wpp || local.whatsapp || '',
+      email: local.email || ''
+    });
   }
   function placaDaOSNF(os){
     const v = (W.J?.veiculos || []).find(x => x.id === (os?.veiculoId || os?.veiculo)) || {};
@@ -1254,7 +1268,6 @@
       const resumo = semDestino.slice(0, 5).map(i => `${i.codigo || i.codigoFornecedor || 'sem codigo'} - ${i.descricao || i.desc || 'peca sem descricao'} (${i.vinculo || i.placa || 'sem placa/O.S.'})`).join(' | ');
       throw new Error(`Existem ${semDestino.length} item(ns) marcados para O.S./placa sem O.S. em atendimento resolvida. Selecione a O.S. no campo da peça antes de finalizar. ${resumo}`);
     }
-    const fv = firebaseFieldValueNF();
     let totalPecas = 0;
     const registrosAuxiliares = [];
     for (const [osId, entry] of porOS.entries()) {
@@ -1275,13 +1288,8 @@
         updatedAt: new Date().toISOString(),
         ultimaEntradaNFVinculada: nfPayload.numero || nfRef.id
       };
-      if (fv?.arrayUnion) {
-        osUpdate.pecasReais = fv.arrayUnion(...pecas);
-        osUpdate.timeline = fv.arrayUnion(evento);
-      } else {
-        osUpdate.pecasReais = mergePecasReaisNF(entry.os.pecasReais, pecas);
-        osUpdate.timeline = (Array.isArray(entry.os.timeline) ? entry.os.timeline.slice() : []).concat(evento);
-      }
+      osUpdate.pecasReais = mergePecasReaisNF(entry.os.pecasReais, pecas);
+      osUpdate.timeline = (Array.isArray(entry.os.timeline) ? entry.os.timeline.slice() : []).concat(evento);
       batch.set(W.db.collection('ordens_servico').doc(osId), cleanFirestoreNF(osUpdate), { merge: true });
       registrosAuxiliares.push({ osId, acao, nfId: nfRef.id, nfNumero: nfPayload.numero || '', pecas });
       const localOS = (W.J?.os || []).find(o => String(o.id) === String(osId));
@@ -1510,6 +1518,8 @@
     const nfe = W._nfeProData || null;
     const batch = W.db.batch();
     const fornecedorId = await ensureFornecedor(batch, nfe);
+    const fornecedorNome = fornecedorNomeNF(nfe, fornecedorId);
+    const fornecedorSnapshot = fornecedorSnapshotNF(nfe, fornecedorId, fornecedorNome);
     const duplicada = await buscarNFeDuplicada(nfe || { numero:getVal('nfNumero'), serie:'', chave:'', fornecedor:{ cnpj:'' } });
     if(duplicada){
       const msg = `NF ${getVal('nfNumero') || nfe?.numero || ''} ja importada. Operacao bloqueada para evitar duplicidade fiscal, estoque e financeiro.`;
@@ -1540,10 +1550,9 @@
         descontoFiscalExtra: totaisTela.descontoFiscalExtra,
         vNF: totalNF,
         totalCalculado: totaisTela.totalCalculado
-      }), cobranca: nfe?.cobranca || {}, pagamentos:nfe?.pagamentos || [], fornecedorSnapshot:nfe?.fornecedor || null,
+      }), cobranca: nfe?.cobranca || {}, pagamentos:nfe?.pagamentos || [], fornecedorSnapshot, fornecedorNome,
       itens, rawXml:nfe?.rawXml || '', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()
     };
-    const fornecedorNome = fornecedorNomeNF(nfe, fornecedorId);
     if (isNFDevolucao(nfe, itens)) {
       await salvarNFDevolucao(itens, nfe, fornecedorId, nfPayload);
       return;
@@ -1565,16 +1574,16 @@
       const custoOp = custoOperacionalNF(item);
       const estoqueRef = existente ? W.db.collection('estoqueItems').doc(existente.id) : W.db.collection('estoqueItems').doc();
       const estoqueId = estoqueRef.id;
-      const estoquePayload = { tenantId:W.J.tid, desc:item.descricao, descricao:item.descricao, codigo:item.codigoFornecedor||item.codigo||'', codigoFornecedor:item.codigoFornecedor||item.codigo||'', codigoComercial:item.codigoComercial||item.oem||'', oem:item.oem||item.codigoComercial||item.codigo||'', marca:item.marca||'', ean:item.ean||'', ncm:item.ncm||'', cest:item.cest||'', cfop:item.cfop||'', und:item.unidadeFiscal||item.unidade||'UN', unidadeFiscal:item.unidadeFiscal||item.unidade||'UN', quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, quantidadeOperacional:entradaQtd, fatorOperacional:item.fatorOperacional||1, custo:custoOp, valorUnitarioFiscal:item.valorUnitarioFiscal||item.valorUnitario||0, venda:item.venda || custoOp, fornecedorId, ultimaNF:nfPayload.numero, ultimaNFId:nfRef.id, updatedAt:new Date().toISOString() };
+      const estoquePayload = { tenantId:W.J.tid, desc:item.descricao, descricao:item.descricao, codigo:item.codigoFornecedor||item.codigo||'', codigoFornecedor:item.codigoFornecedor||item.codigo||'', codigoComercial:item.codigoComercial||item.oem||'', oem:item.oem||item.codigoComercial||item.codigo||'', marca:item.marca||'', ean:item.ean||'', ncm:item.ncm||'', cest:item.cest||'', cfop:item.cfop||'', und:item.unidadeFiscal||item.unidade||'UN', unidadeFiscal:item.unidadeFiscal||item.unidade||'UN', quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, quantidadeOperacional:entradaQtd, fatorOperacional:item.fatorOperacional||1, custo:custoOp, valorUnitarioFiscal:item.valorUnitarioFiscal||item.valorUnitario||0, venda:item.venda || custoOp, fornecedorId, fornecedorNome, ultimaFornecedor:fornecedorNome, ultimaNF:nfPayload.numero, ultimaNFId:nfRef.id, updatedAt:new Date().toISOString() };
       if(existente) batch.update(estoqueRef, Object.assign({}, estoquePayload, { qtd:(Number(existente.qtd)||0)+qtdDisponivel }));
       else batch.set(estoqueRef, Object.assign({}, estoquePayload, { qtd:qtdDisponivel, min:1, createdAt:new Date().toISOString() }));
-      batch.set(W.db.collection('estoque_movimentos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, estoqueId, tipo:'entrada_nf', nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, codigo:item.codigo||item.codigoFornecedor||'', desc:item.descricao, qtd:entradaQtd, quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, fatorOperacional:item.fatorOperacional||1, custo:custoOp, valorUnitarioFiscal:item.valorUnitario||0, total:item.valorLiquido, osId:'', placa:'', destino:'entrada_operacional', createdAt:new Date().toISOString(), usuario:W.J?.nome||'Sistema' }));
+      batch.set(W.db.collection('estoque_movimentos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, estoqueId, tipo:'entrada_nf', nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, fornecedorNome, codigo:item.codigo||item.codigoFornecedor||'', desc:item.descricao, qtd:entradaQtd, quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, fatorOperacional:item.fatorOperacional||1, custo:custoOp, valorUnitarioFiscal:item.valorUnitario||0, total:item.valorLiquido, osId:'', placa:'', destino:'entrada_operacional', createdAt:new Date().toISOString(), usuario:W.J?.nome||'Sistema' }));
       for (const destItem of destinosItem) {
         const vinculadoNaEntrada = destinoVinculadoNF(destItem);
         if(vinculadoNaEntrada && Number(destItem.quantidade || destItem.qtd || 0)){
-          batch.set(W.db.collection('estoque_movimentos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, estoqueId, tipo:'baixa_automatica_vinculo_nf_os', nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, codigo:destItem.codigo||destItem.codigoFornecedor||'', desc:destItem.descricao, qtd:-Math.abs(Number(destItem.quantidade || destItem.qtd || 0) || 0), quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, custo:destItem.valorUnitario, valorUnitarioFiscal:item.valorUnitario||0, total:destItem.valorLiquido, osId:destItem.osId||'', placa:destItem.placa||'', destino:destItem.destino||destItem.finalidade||'os', destinoIndice:destItem.destinoIndice ?? 0, motivo:'Peca vinculada a veiculo/O.S. na entrada da NF; saldo de estoque fica baixado automaticamente.', createdAt:new Date().toISOString(), usuario:W.J?.nome||'Sistema' }));
+          batch.set(W.db.collection('estoque_movimentos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, estoqueId, tipo:'baixa_automatica_vinculo_nf_os', nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, fornecedorNome, codigo:destItem.codigo||destItem.codigoFornecedor||'', desc:destItem.descricao, qtd:-Math.abs(Number(destItem.quantidade || destItem.qtd || 0) || 0), quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, custo:destItem.valorUnitario, valorUnitarioFiscal:item.valorUnitario||0, total:destItem.valorLiquido, osId:destItem.osId||'', placa:destItem.placa||'', destino:destItem.destino||destItem.finalidade||'os', destinoIndice:destItem.destinoIndice ?? 0, motivo:'Peca vinculada a veiculo/O.S. na entrada da NF; saldo de estoque fica baixado automaticamente.', createdAt:new Date().toISOString(), usuario:W.J?.nome||'Sistema' }));
         }
-        batch.set(W.db.collection('nf_itens_vinculos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, estoqueId, codigo:destItem.codigo||'', codigoFornecedor:destItem.codigoFornecedor||destItem.codigo||'', codigoComercial:destItem.codigoComercial||destItem.oem||'', ean:destItem.ean||'', desc:destItem.descricao, marca:destItem.marca||'', qtd:destItem.quantidade, quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, quantidadeOperacionalTotal:entradaQtd, fatorOperacional:item.fatorOperacional||1, destinoIndice:destItem.destinoIndice ?? 0, custo:destItem.valorUnitario, valorUnitarioFiscal:item.valorUnitario||0, desconto:item.desconto, total:destItem.valorLiquido, ncm:destItem.ncm||'', cest:destItem.cest||'', cfop:destItem.cfop||'', finalidade:destItem.destino||destItem.finalidade||'estoque', vinculo:destItem.vinculo||'', osId:destItem.osId||'', placa:destItem.placa||'', estoqueBaixadoAutomatico:vinculadoNaEntrada, createdAt:new Date().toISOString() }));
+        batch.set(W.db.collection('nf_itens_vinculos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, fornecedorNome, estoqueId, codigo:destItem.codigo||'', codigoFornecedor:destItem.codigoFornecedor||destItem.codigo||'', codigoComercial:destItem.codigoComercial||destItem.oem||'', ean:destItem.ean||'', desc:destItem.descricao, marca:destItem.marca||'', qtd:destItem.quantidade, quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, quantidadeOperacionalTotal:entradaQtd, fatorOperacional:item.fatorOperacional||1, destinoIndice:destItem.destinoIndice ?? 0, custo:destItem.valorUnitario, valorUnitarioFiscal:item.valorUnitario||0, desconto:item.desconto, total:destItem.valorLiquido, ncm:destItem.ncm||'', cest:destItem.cest||'', cfop:destItem.cfop||'', finalidade:destItem.destino||destItem.finalidade||'estoque', vinculo:destItem.vinculo||'', osId:destItem.osId||'', placa:destItem.placa||'', estoqueBaixadoAutomatico:vinculadoNaEntrada, createdAt:new Date().toISOString() }));
       }
     }
     const parcelas = collectParcelas();
@@ -1590,13 +1599,13 @@
       const vencAgr = getVal('nfAgrVenc') || getVal('nfVenc') || isoToday();
       const statusAgr = 'Aguardando boleto agrupado';
       const grupoKey = ['fornecedor', fornecedorId || onlyDigits(nfe?.fornecedor?.cnpj || ''), 'periodo', diasAgr, vencAgr].join('_').replace(/[.#$\[\]\/]/g, '_');
-      batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saida', status:statusAgr, desc:`NF ${nfPayload.numero || 's/n'} aguardando boleto agrupado - ${fornecedorNome || nfe?.fornecedor?.nome || 'Fornecedor'}`, valor:totalNF, pgto:'Agrupamento por periodo', venc:vencAgr, notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, fornecedorNome:fornecedorNome || nfe?.fornecedor?.nome || '', agrupamentoPeriodo:true, aguardaBoletoAgrupado:true, agrupamentoDias:diasAgr, agrupamentoVencimentoPrevisto:vencAgr, agrupamentoFornecedorKey:grupoKey, bloqueadoPagamentoIndividual:true, createdAt:new Date().toISOString() });
+      batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saida', status:statusAgr, desc:`NF ${nfPayload.numero || 's/n'} aguardando boleto agrupado - ${fornecedorNome || 'Fornecedor'}`, valor:totalNF, pgto:'Agrupamento por periodo', venc:vencAgr, notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, fornecedorNome:fornecedorNome || '', agrupamentoPeriodo:true, aguardaBoletoAgrupado:true, agrupamentoDias:diasAgr, agrupamentoVencimentoPrevisto:vencAgr, agrupamentoFornecedorKey:grupoKey, bloqueadoPagamentoIndividual:true, createdAt:new Date().toISOString() });
     } else if(parcelasFinanceiras.length){
       for(const [idx,p] of parcelasFinanceiras.entries()){
-        batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:statusFinanceiro, desc:`NF ${nfPayload.numero || 's/n'} — ${nfe?.fornecedor?.nome || 'Fornecedor'} (${idx+1}/${parcelasFinanceiras.length})`, valor:p.valor, pgto:forma, venc:p.vencimento || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, createdAt:new Date().toISOString() });
+        batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:statusFinanceiro, desc:`NF ${nfPayload.numero || 's/n'} — ${fornecedorNome || 'Fornecedor'} (${idx+1}/${parcelasFinanceiras.length})`, valor:p.valor, pgto:forma, venc:p.vencimento || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, fornecedorNome:fornecedorNome || '', createdAt:new Date().toISOString() });
       }
     } else {
-      batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:statusFinanceiro, desc:`NF ${nfPayload.numero || 's/n'} — ${nfe?.fornecedor?.nome || 'Fornecedor'}`, valor:totalNF, pgto:forma, venc:getVal('nfVenc') || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, createdAt:new Date().toISOString() });
+      batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:statusFinanceiro, desc:`NF ${nfPayload.numero || 's/n'} — ${fornecedorNome || 'Fornecedor'}`, valor:totalNF, pgto:forma, venc:getVal('nfVenc') || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, fornecedorNome:fornecedorNome || '', createdAt:new Date().toISOString() });
     }
     await batch.commit();
     await salvarRegistrosAuxiliaresNF(vinculosOS);

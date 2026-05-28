@@ -503,54 +503,68 @@
     if (!secret177() || !placaFiltro) return '';
     const osList = Array.isArray(hits) ? hits : [];
     const osIds = new Set(osList.map(o => String(o.id || '')).filter(Boolean));
+    const osComPecasReais = new Set(osList
+      .filter(o => Array.isArray(o.pecasReais) && o.pecasReais.length)
+      .map(o => String(o.id || ''))
+      .filter(Boolean));
     const osById = id => (J().os || []).find(o => String(o.id || '') === String(id || '')) || {};
-    const rowsByKey = new Map();
+    const rows = [];
+    const chavesEspelhadasNaOS = new Set();
+    const chavesComplementares = new Set();
     const placaOk = value => {
       const p = placaNorm(value || '');
       return p && (p === placaFiltro || p.includes(placaFiltro) || placaFiltro.includes(p));
     };
-    const add = (origem, item, osBase, extra) => {
+    const add = (origem, item, osBase, extra, opts) => {
       const os = osBase || {};
       const v = veiculoByOS(os);
       const placa = placaNorm(item?.placa || os.placa || v.placa || '');
       const osId = item?.osId || os.id || '';
       if (!osIds.has(String(osId || '')) && !placaOk(placa)) return;
+      if (opts?.skipIfOSHasReais && osId && osComPecasReais.has(String(osId))) return;
       const key = chaveCustoReal(item, osId, placa);
-      const total = totalCustoReal(item);
-      registrarCustoReal(rowsByKey, Object.assign({
+      if (opts?.skipIfInOS && key && chavesEspelhadasNaOS.has(key)) return;
+      if (opts?.complementar && key && chavesComplementares.has(key)) return;
+      const qtd = qtdCustoReal(item);
+      const origemOSReal = norm(origem || '').includes('pecas reais');
+      const unitOSReal = num(item?.valorCompra || item?.custo || item?.valorUnitario || item?.custoUnit || item?.valorCusto || item?.precoCusto || item?.unitario);
+      const total = origemOSReal && unitOSReal > 0 ? unitOSReal * qtd : totalCustoReal(item);
+      rows.push(Object.assign({
         _key: key,
         origem,
         codigo: codigoCustoReal(item),
         desc: item?.desc || item?.descricao || item?.descricaoOriginal || '-',
-        qtd: qtdCustoReal(item),
+        qtd,
         total,
-        custoUnit: total / qtdCustoReal(item),
+        custoUnit: total / qtd,
         placa: placa || os.placa || v.placa || '',
         osId,
         nfNumero: item?.nfNumero || item?.nf || item?.notaFiscal || '',
         fornecedor: item?.fornecedorNome || item?.fornecedor || '',
         data: item?.dataCompra || item?.dataNF || item?.dataMov || item?.createdAt || ''
       }, extra || {}));
+      if (opts?.markOS && key) chavesEspelhadasNaOS.add(key);
+      if (opts?.complementar && key) chavesComplementares.add(key);
     };
-    osList.forEach(os => (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => add('O.S. / pecas reais', p, os)));
-    (J().nfItensVinculos || []).forEach(v => add('NF vinculada a O.S.', v, osById(v.osId)));
+    osList.forEach(os => (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => add('O.S. / pecas reais', p, os, null, { markOS: true })));
+    (J().nfItensVinculos || []).forEach(v => add('NF vinculada a O.S.', v, osById(v.osId), null, { skipIfOSHasReais: true, skipIfInOS: true, complementar: true }));
     (J().notasFiscaisEntrada || []).forEach(n => {
       (Array.isArray(n.itens) ? n.itens : []).forEach(i => add('Item de NF', Object.assign({}, i, {
         nfId: n.id || i.nfId,
         nfNumero: n.numero || i.nfNumero,
         fornecedor: n.fornecedorSnapshot?.nome || n.fornecedorNome || i.fornecedor,
         dataCompra: n.dataNF || n.dataEmissao || n.createdAt || i.dataCompra
-      }), osById(i.osId)));
+      }), osById(i.osId), null, { skipIfOSHasReais: true, skipIfInOS: true, complementar: true }));
     });
-    const rows = consolidarCustosReais(Array.from(rowsByKey.values())).map(r => {
+    const rowsLimpas = rows.map(r => {
       const copy = Object.assign({}, r);
       delete copy._key;
       return copy;
     });
-    rows.sort((a,b) => String(b.data || '').localeCompare(String(a.data || '')));
+    rowsLimpas.sort((a,b) => String(b.data || '').localeCompare(String(a.data || '')));
     const filtradas = String(termoRaw || '').trim()
-      ? rows.filter(r => itemCombinaTermoHistorico(r, termoRaw))
-      : rows.slice();
+      ? rowsLimpas.filter(r => itemCombinaTermoHistorico(r, termoRaw))
+      : rowsLimpas.slice();
     if (!filtradas.length) {
       return `<div class="op-card" style="border-color:rgba(255,59,59,.35);background:rgba(255,59,59,.045);">
         <div class="op-title">RESUMO DE CUSTOS REAIS *177</div>
