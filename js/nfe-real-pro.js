@@ -1298,6 +1298,7 @@
         pecas.forEach(p => {
           if (!p.origemNFItemKey || !chavesAtuais.has(p.origemNFItemKey)) W.adicionarPecaRealRow(p);
         });
+        W.atualizarResumoPecasReais177?.();
       }
     }
     return { os: porOS.size, pecas: totalPecas, registrosAuxiliares };

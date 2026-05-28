@@ -1420,6 +1420,7 @@ window.prepOS = function(mode, id = null) {
     if ($('containerPecasReais')) {
       $('containerPecasReais').innerHTML = '';
       (o.pecasReais || []).forEach(p => window.adicionarPecaRealRow(p));
+      window.atualizarResumoPecasReais177?.();
     }
     // LOTE C — Traz próxima revisão ao editar
     if ($('osProxRev')) $('osProxRev').value = o.proxRev || '';
@@ -3849,6 +3850,40 @@ window.adicionarPecaReal = function() {
   window.adicionarPecaRealRow({});
 };
 
+window.totalizarPecasReais177 = function() {
+  const rows = Array.from(document.querySelectorAll('#containerPecasReais > div'));
+  return rows.reduce((acc, row) => {
+    const temConteudo = !!(row.querySelector('.pr-codigo')?.value || row.querySelector('.pr-desc')?.value);
+    const qtd = Math.max(0, numBR(row.querySelector('.pr-qtd')?.value || 0));
+    const unit = Math.max(0, numBR(row.querySelector('.pr-valor')?.value || 0));
+    if (temConteudo) acc.itens += 1;
+    acc.qtd += qtd;
+    acc.total += qtd * unit;
+    return acc;
+  }, { itens: 0, qtd: 0, total: 0 });
+};
+
+window.atualizarResumoPecasReais177 = function() {
+  const ct = document.getElementById('containerPecasReais');
+  if (!ct) return;
+  let box = document.getElementById('pecasReaisResumo177');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'pecasReaisResumo177';
+    box.style.cssText = 'display:none;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:8px 0 10px;font-family:var(--fm);font-size:.68rem;';
+    ct.parentElement?.insertBefore(box, ct);
+  }
+  const ativo177 = window._pecasReaisDesbloqueadas === true || document.body?.dataset?.secret177 === 'on';
+  if (!ativo177) { box.style.display = 'none'; return; }
+  const r = window.totalizarPecasReais177();
+  const moedaLocal = typeof moedaOS === 'function' ? moedaOS : (v => 'R$ ' + numBR(v).toFixed(2).replace('.', ','));
+  box.style.display = 'grid';
+  box.innerHTML = `
+    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Itens reais vinculados</small><br><b>${r.itens}</b></div>
+    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Quantidade real</small><br><b>${r.qtd}</b></div>
+    <div style="border:1px solid rgba(255,59,59,.24);background:rgba(255,59,59,.06);padding:8px;border-radius:3px;"><small style="color:var(--muted);">Custo real total</small><br><b style="color:var(--danger);">${moedaLocal(r.total)}</b></div>`;
+};
+
 window.adicionarPecaRealRow = function(p) {
   const ct = document.getElementById('containerPecasReais');
   if (!ct) return;
@@ -3885,9 +3920,12 @@ window.adicionarPecaRealRow = function(p) {
     <input type="text" class="j-input pr-nf" value="${_escVal(p.nf||'')}" placeholder="Nº Nota Fiscal">
     <input type="date" class="j-input pr-datacompra" value="${p.dataCompra||hoje}" title="Data da compra">
     <input type="text" inputmode="decimal" class="j-input pr-valor" value="${numBR(p.valorCompra||0).toFixed(2).replace('.', ',')}" placeholder="R$ compra" title="Valor real de compra da peça instalada">
-    <button type="button" onclick="this.parentElement.remove()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
+    <button type="button" onclick="this.parentElement.remove();window.atualizarResumoPecasReais177&&window.atualizarResumoPecasReais177()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
   `;
+  div.addEventListener('input', e => { if (e.target?.matches?.('.pr-qtd,.pr-valor')) window.atualizarResumoPecasReais177?.(); });
+  div.addEventListener('change', e => { if (e.target?.matches?.('.pr-qtd,.pr-valor')) window.atualizarResumoPecasReais177?.(); });
   ct.appendChild(div);
+  window.atualizarResumoPecasReais177?.();
 };
 
 window.adicionarPecaRealRow = function(p) {
@@ -3927,9 +3965,12 @@ window.adicionarPecaRealRow = function(p) {
     <input type="text" class="j-input pr-nf" value="${_escVal(nfReal)}" placeholder="NF">
     <input type="date" class="j-input pr-datacompra" value="${_escVal(dataCompraReal)}" title="Data da compra">
     <input type="text" inputmode="decimal" class="j-input pr-valor" value="${valorCompraReal.toFixed(2).replace('.', ',')}" placeholder="R$ compra" title="Valor real de compra">
-    <button type="button" onclick="this.parentElement.remove()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">x</button>
+    <button type="button" onclick="this.parentElement.remove();window.atualizarResumoPecasReais177&&window.atualizarResumoPecasReais177()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">x</button>
   `;
+  div.addEventListener('input', e => { if (e.target?.matches?.('.pr-qtd,.pr-valor')) window.atualizarResumoPecasReais177?.(); });
+  div.addEventListener('change', e => { if (e.target?.matches?.('.pr-qtd,.pr-valor')) window.atualizarResumoPecasReais177?.(); });
   ct.appendChild(div);
+  window.atualizarResumoPecasReais177?.();
 };
 
 window.selecionarPecaRealEstoque = function(sel) {

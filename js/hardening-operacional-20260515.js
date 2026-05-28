@@ -437,6 +437,68 @@
     const atual = rowsByKey.get(key);
     if (!atual || qualidadeCustoReal(row) > qualidadeCustoReal(atual)) rowsByKey.set(key, row);
   }
+  function nfNormCustoReal(v) {
+    return String(v || '').toUpperCase().replace(/^NF\s+/i, '').replace(/[^A-Z0-9]/g, '');
+  }
+  function textoCompatCustoReal(row) {
+    return norm([row?.codigo, row?.desc].filter(Boolean).join(' '));
+  }
+  function tokensCustoReal(row) {
+    const stop = new Set(['de','da','do','das','dos','com','para','por','peca','pecas','kit','un','unit']);
+    return textoCompatCustoReal(row).split(/\s+/).filter(t => t.length >= 3 && !stop.has(t));
+  }
+  function overlapCustoReal(a, b) {
+    const ta = new Set(tokensCustoReal(a));
+    const tb = new Set(tokensCustoReal(b));
+    if (!ta.size || !tb.size) return 0;
+    let inter = 0;
+    ta.forEach(t => { if (tb.has(t)) inter += 1; });
+    return inter / Math.min(ta.size, tb.size);
+  }
+  function mesmoDestinoCustoReal(a, b) {
+    const osA = String(a?.osId || '');
+    const osB = String(b?.osId || '');
+    const placaA = placaNorm(a?.placa || '');
+    const placaB = placaNorm(b?.placa || '');
+    return (osA && osB && osA === osB) || (placaA && placaB && (placaA === placaB || placaA.includes(placaB) || placaB.includes(placaA)));
+  }
+  function mesmoNFCustoReal(a, b) {
+    const nfA = nfNormCustoReal(a?.nfNumero || '');
+    const nfB = nfNormCustoReal(b?.nfNumero || '');
+    return nfA && nfB && nfA === nfB;
+  }
+  function codigoCompatCustoReal(a, b) {
+    const ca = codigoPecaNormalizado(a?.codigo || '');
+    const cb = codigoPecaNormalizado(b?.codigo || '');
+    const ta = codigoPecaNormalizado(textoCompatCustoReal(a));
+    const tb = codigoPecaNormalizado(textoCompatCustoReal(b));
+    if (ca && cb && ca === cb) return true;
+    if (ca && tb && tb.includes(ca)) return true;
+    if (cb && ta && ta.includes(cb)) return true;
+    return false;
+  }
+  function valorCompatCustoReal(a, b) {
+    const totalA = Math.round(num(a?.total) * 100);
+    const totalB = Math.round(num(b?.total) * 100);
+    const unitA = Math.round(num(a?.custoUnit) * 100);
+    const unitB = Math.round(num(b?.custoUnit) * 100);
+    return (totalA > 0 && totalA === totalB) || (unitA > 0 && unitA === unitB);
+  }
+  function rowsCustoRealEquivalentes(a, b) {
+    if (!mesmoNFCustoReal(a, b) || !mesmoDestinoCustoReal(a, b)) return false;
+    if (codigoCompatCustoReal(a, b)) return true;
+    const overlap = overlapCustoReal(a, b);
+    return overlap >= 0.55 && valorCompatCustoReal(a, b);
+  }
+  function consolidarCustosReais(rows) {
+    const out = [];
+    (rows || []).forEach(row => {
+      const idx = out.findIndex(atual => rowsCustoRealEquivalentes(atual, row));
+      if (idx < 0) { out.push(row); return; }
+      if (qualidadeCustoReal(row) > qualidadeCustoReal(out[idx])) out[idx] = row;
+    });
+    return out;
+  }
   function renderResumoCustosReaisVeiculo(placaFiltro, hits, termoRaw) {
     if (!secret177() || !placaFiltro) return '';
     const osList = Array.isArray(hits) ? hits : [];
@@ -480,7 +542,7 @@
         dataCompra: n.dataNF || n.dataEmissao || n.createdAt || i.dataCompra
       }), osById(i.osId)));
     });
-    const rows = Array.from(rowsByKey.values()).map(r => {
+    const rows = consolidarCustosReais(Array.from(rowsByKey.values())).map(r => {
       const copy = Object.assign({}, r);
       delete copy._key;
       return copy;
