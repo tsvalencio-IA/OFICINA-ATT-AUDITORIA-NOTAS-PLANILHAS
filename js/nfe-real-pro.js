@@ -555,9 +555,9 @@
     box.style.display='block';
     box.innerHTML = `<div style="font-family:var(--fd);font-weight:800;margin-bottom:8px;color:var(--accent)">DUPLICATAS / BOLETOS DA NF</div>` + arr.map((d,idx)=>`
       <div class="nf-parcela-row" style="display:grid;grid-template-columns:80px 1fr 1fr;gap:8px;margin-bottom:6px;align-items:end;">
-        <div><label class="j-label">Parc.</label><input class="j-input nf-parc-num" value="${esc(d.numero || String(idx+1).padStart(3,'0'))}"></div>
-        <div><label class="j-label">Vencimento</label><input type="date" class="j-input nf-parc-venc" value="${esc(d.vencimento || '')}"></div>
-        <div><label class="j-label">Valor</label><input class="j-input nf-parc-valor" inputmode="decimal" value="${esc(fmtBR(d.valor||0))}"></div>
+        <div><label class="j-label">Parc.</label><input class="j-input nf-parc-num" value="${esc(d.numero || String(idx+1).padStart(3,'0'))}" oninput="this.closest('#nfParcelasBox').dataset.manualEdit='1'"></div>
+        <div><label class="j-label">Vencimento</label><input type="date" class="j-input nf-parc-venc" value="${esc(d.vencimento || '')}" onchange="this.closest('#nfParcelasBox').dataset.manualEdit='1'"></div>
+        <div><label class="j-label">Valor</label><input class="j-input nf-parc-valor" inputmode="decimal" value="${esc(fmtBR(d.valor||0))}" oninput="this.closest('#nfParcelasBox').dataset.manualEdit='1'"></div>
       </div>`).join('');
   }
   function ensureAgrupamentoPeriodoBox(){
@@ -588,6 +588,8 @@
   function gerarParcelasManuais(){
     ensureFormaPagamentoNFOptions();
     ensureParcelasNFOptions();
+    const boxParcelas = $('nfParcelasBox');
+    if(boxParcelas) boxParcelas.dataset.manualEdit = '';
     const forma = getVal('nfPgtoForma');
     if(forma === 'AgrupamentoPeriodo'){ renderParcels([]); mostrarAgrupamentoPeriodoNF(true); return; }
     if(!formaPagamentoNFParcelavel(forma)){ renderParcels([]); return; }
@@ -623,7 +625,8 @@
     if(current && current.totais && current.totais.vNF && Math.abs(totais.totalItens - current.totais.vNF) > 0.02){
       if(el) el.title = `Atenção: total dos itens (${fmtBR(totais.totalItens)}) difere do total fiscal da NF (${fmtBR(current.totais.vNF)}). O financeiro usa o total fiscal.`;
     }
-    if($('nfParcelasBox')?.style.display === 'block' && !(W._nfeProData?.cobranca?.duplicatas || []).length) gerarParcelasManuais();
+    const boxParcelas = $('nfParcelasBox');
+    if(boxParcelas?.style.display === 'block' && boxParcelas.dataset.manualEdit !== '1' && !(W._nfeProData?.cobranca?.duplicatas || []).length) gerarParcelasManuais();
   };
   W.checkPgtoNF = function(){
     ensureFormaPagamentoNFOptions();
@@ -1008,6 +1011,15 @@
       numero: r.querySelector('.nf-parc-num')?.value || '', vencimento: r.querySelector('.nf-parc-venc')?.value || '', valor: parseNum(r.querySelector('.nf-parc-valor')?.value)
     })).filter(p => p.valor > 0 || p.vencimento);
   }
+  W.thiaNFCollectParcelas = collectParcelas;
+  W.thiaNFRenderParcelas = function(parcelas, opts = {}){
+    const arr = Array.isArray(parcelas) ? parcelas : [];
+    ensureParcelasNFOptions(arr.length);
+    if($('nfParcelas') && arr.length) $('nfParcelas').value = String(arr.length);
+    renderParcels(arr);
+    const box = $('nfParcelasBox');
+    if(box && opts.manual) box.dataset.manualEdit = '1';
+  };
   function normalizePlateNF(v){
     return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
