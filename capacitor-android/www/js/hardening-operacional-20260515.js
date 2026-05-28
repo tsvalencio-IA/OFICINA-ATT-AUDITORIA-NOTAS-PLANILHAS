@@ -446,7 +446,7 @@
     rows.sort((a,b) => String(b.data || '').localeCompare(String(a.data || '')));
     const filtradas = String(termoRaw || '').trim()
       ? rows.filter(r => itemCombinaTermoHistorico(r, termoRaw))
-      : rows;
+      : rows.slice();
     rows.length = 0;
     rows.push(...filtradas);
     if (!rows.length) {
@@ -579,7 +579,7 @@
       const groups = gruposHistorico(os);
       ['pecAprov','pecNao'].forEach(k => (groups[k] || []).forEach(p => {
         if (!itemTemCodigoPeca(p, codigo)) return;
-        add('OS/ORCAMENTO', {
+        add('OS/ORCAMENTO', 'ORCAMENTO DA O.S.', {
           codigo: p.codigoFornecedor || p.codigo || p.codigoComercial || p.oem || termoRaw,
           desc: p.desc || p.descricao || '',
           marca: p.marca || '',

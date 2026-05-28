@@ -641,6 +641,11 @@
     const itens = Array.isArray(n.itens) ? n.itens : [];
     if (itens.length && typeof W.adicionarItemNF === 'function') itens.forEach(it => W.adicionarItemNF(it));
     else W.adicionarItemNF?.();
+    if (typeof W.thiaNFSetTotaisFiscais === 'function') {
+      W.thiaNFSetTotaisFiscais(Object.assign({}, n.totaisFiscais || {}, n.despesasAcessorias || {}, {
+        vNF: n.totalNF || n.totaisFiscais?.vNF || n.totalItens || 0
+      }), { manualTotal:true, forceTotal:true });
+    }
     W.calcNFTotal?.();
     setNFSavingMode(true);
     W.abrirModal?.('modalNF');
@@ -659,7 +664,19 @@
     const antes = W._thiaNfEditBefore || {};
     const itens = collectItensNFEdit();
     if (!itens.length) { toast('A NF precisa manter ao menos um item. Para cancelar a nota, use exclusão auditada.', 'warn'); return true; }
-    const totalItens = Math.round(itens.reduce((s, i) => s + (Number(i.valorLiquido) || 0), 0) * 100) / 100;
+    const totaisTela = typeof W.thiaNFCalcTotaisFiscais === 'function'
+      ? W.thiaNFCalcTotaisFiscais()
+      : {
+          totalItens: Math.round(itens.reduce((s, i) => s + (Number(i.valorLiquido) || 0), 0) * 100) / 100,
+          totalFiscal: Math.round(itens.reduce((s, i) => s + (Number(i.valorLiquido) || 0), 0) * 100) / 100,
+          frete: 0,
+          seguro: 0,
+          outrasDespesas: 0,
+          descontoFiscalExtra: 0,
+          totalCalculado: 0
+        };
+    const totalItens = totaisTela.totalItens;
+    const totalNF = totaisTela.totalFiscal || totalItens;
     const diff = resumoDiffItensNF(antes.itens || [], itens);
     const totalOriginal = Number(antes.totalFiscalOriginal || antes.totalNF || antes.totalItens || 0) || totalItens;
     const registro = {
@@ -674,7 +691,7 @@
         incluidos: diff.incluidos.length,
         excluidos: diff.excluidos.length,
         totalAntes: Number(antes.totalItens || antes.totalNF || 0) || 0,
-        totalDepois: totalItens
+        totalDepois: totalNF
       }
     };
     const payload = {
@@ -683,7 +700,22 @@
       dataNF: val('nfData') || antes.dataNF || '',
       itens,
       totalItens,
-      totalNF: totalItens,
+      totalNF,
+      despesasAcessorias: {
+        frete: totaisTela.frete || 0,
+        seguro: totaisTela.seguro || 0,
+        outrasDespesas: totaisTela.outrasDespesas || 0,
+        descontoFiscalExtra: totaisTela.descontoFiscalExtra || 0
+      },
+      totaisFiscais: Object.assign({}, antes.totaisFiscais || {}, {
+        totalItens,
+        vFrete: totaisTela.frete || 0,
+        vSeg: totaisTela.seguro || 0,
+        vOutro: totaisTela.outrasDespesas || 0,
+        descontoFiscalExtra: totaisTela.descontoFiscalExtra || 0,
+        vNF: totalNF,
+        totalCalculado: totaisTela.totalCalculado || totalNF
+      }),
       totalFiscalOriginal: totalOriginal,
       itensEditados: true,
       statusConferencia: 'Editada com justificativa',
@@ -698,7 +730,7 @@
     try {
       const batch = db().batch();
       const efeitos = await aplicarEstornosEdicaoNF(batch, id, antes, diff, motivo);
-      const financeiro = await ajustarFinanceiroEdicaoNF(batch, id, antes, totalItens, motivo);
+      const financeiro = await ajustarFinanceiroEdicaoNF(batch, id, antes, totalNF, motivo);
       payload.reconciliacaoEstoqueFinanceiroPendente = diff.incluidos.length > 0;
       payload.resumoReconciliacaoEdicaoNF = { efeitos, financeiro };
       batch.update(db().collection(col).doc(id), payload);

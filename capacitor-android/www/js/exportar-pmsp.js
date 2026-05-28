@@ -1561,18 +1561,30 @@
     const valorHoraCliente = n(os.valorHoraOS ?? os.govValorHoraOS ?? cli.govValorHora ?? 0);
 
     const linhasServOriginal = servicos.map((s, index) => {
-      const tempo = n(s.tempo || 0);
-      const valorBrutoServico = n(s.valor || 0);
       const resolvido = U().resolvePMSPServico ? U().resolvePMSPServico(s, { veiculo, fallbackValorHora: valorHoraCliente }) : {};
-      const valorHora = n(s.valorHora || s.valorHoraSecao || resolvido.valorHora || 0) ||
-        (tempo > 0 && valorBrutoServico > 0 ? +(valorBrutoServico / tempo).toFixed(2) : 0) ||
-        valorHoraCliente;
+      const calcServico = U().calcularServicoMaoObra
+        ? U().calcularServicoMaoObra(s, cli, {
+            os,
+            descMO,
+            veiculo,
+            fallbackValorHora: valorHoraCliente,
+            usarHoraQuandoDisponivel: true
+          })
+        : {
+            tempo: n(s.tempo || 0),
+            valorHora: n(s.valorHora || s.valorHoraSecao || resolvido.valorHora || 0),
+            valorBruto: n(s.valor || s.valorBruto || 0),
+            valorFinal: +(n(s.valor || s.valorBruto || 0) * (1 - descMO)).toFixed(2)
+          };
+      const tempo = n(calcServico.tempo || 0);
+      const valorHora = n(calcServico.valorHora || 0);
       const sistemaServico = resolvido.secaoHoraLabel || s.secaoHoraLabel || s.sistemaTabela || s.sistema || '';
       const codigoInterno = codigoInternoServicoTempa(s, resolvido);
       const codigoTabela = codigoTabelaServicoTempa(s, resolvido);
       const codigo = codigoServicoTempa(s, resolvido);
       const tipoVeiculo = extrairTipoVeiculoTempa(s, veiculo);
-      const totalFinal = +(valorHora * tempo * (1 - descMO)).toFixed(2);
+      const valorBrutoServico = n(calcServico.valorBruto || calcServico.bruto || 0);
+      const totalFinal = n(calcServico.valorFinal || 0);
       return {
         key: 'servico-' + index,
         codigo,
@@ -1583,7 +1595,7 @@
         desc: limparTexto(s.desc || ''),
         tempo,
         valorHora,
-        bruto: +(valorHora * tempo).toFixed(2),
+        bruto: valorBrutoServico,
         descPct: descMO,
         total: totalFinal,
         relacionadoCilia: !!s.relacionadoCilia,

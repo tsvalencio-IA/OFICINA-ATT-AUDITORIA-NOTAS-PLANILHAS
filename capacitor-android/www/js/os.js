@@ -1680,15 +1680,78 @@ window.atualizarSecaoMaoObraOS = function(select) {
   window.aplicarSecaoMaoObraOS(row, select.value, { recalcular: true });
 };
 
+function descontoMaoObraAtualOS() {
+  const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
+  const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
+  const campo = document.getElementById('osDescMO')?.value?.trim();
+  return campo !== '' && campo != null ? taxaDescontoOS(campo) : taxaDescontoOS(dadosGov?.descMO || 0);
+}
+
+function dadosServicoLinhaOS(row) {
+  const sel = row?.querySelector?.('.serv-secao-hora');
+  const secaoHora = sel?.value || row?.dataset?.secaoHora || '';
+  const secaoInfo = secaoHora ? OSU().getPMSPValorHora?.(secaoHora) : null;
+  const valorHoraCampo = row?.querySelector?.('.serv-valor-hora')?.value;
+  const sistemaSelect = sel?.options?.[sel.selectedIndex]?.text?.replace(/\s+-\s+R\$.*/, '') || '';
+  const sistemaTabela = row?.dataset?.sistemaTabela || sistemaSelect || row?.dataset?.secaoHoraLabel || '';
+  const tipoVeiculoTabela = row?.dataset?.tipoVeiculoTabela || extrairTipoVeiculoTempaOS({
+    sistemaTabela,
+    sistema: sistemaTabela,
+    secaoHoraLabel: row?.dataset?.secaoHoraLabel
+  }, window._osVeiculoAtual?.() || {});
+  return {
+    desc: row?.querySelector?.('.serv-desc')?.value || '',
+    valor: numBR(row?.querySelector?.('.serv-valor')?.value || 0),
+    tempo: numBR(row?.querySelector?.('.serv-tempo')?.value || 0),
+    valorHora: numBR(valorHoraCampo || row?.dataset?.valorHoraSecao || secaoInfo?.valor || 0),
+    valorHoraSecao: row?.dataset?.valorHoraSecao || secaoInfo?.valor || '',
+    valorHoraTabela: secaoInfo ? numBR(secaoInfo.valor) : numBR(row?.dataset?.valorHoraSecao || 0),
+    codigoInterno: row?.dataset?.codigoInterno || '',
+    codigoTabela: row?.dataset?.codigoTabela || '',
+    sistemaTabela,
+    tipoVeiculoTabela,
+    secaoHora,
+    secaoHoraLabel: secaoInfo?.label || row?.dataset?.secaoHoraLabel || sistemaSelect || '',
+    valorManual: row?.dataset?.valorManual === '1' ? '1' : '',
+    valorHoraManual: row?.dataset?.valorHoraManual === '1' ? '1' : '',
+    tempaManual: row?.dataset?.tempaManual === '1',
+    relacionadoCilia: row?.dataset?.servRelacionado === '1',
+    origemServico: row?.dataset?.servRelacionado === '1'
+      ? ((row?.dataset?.codigoTabela || '') ? (row?.dataset?.tempaManual === '1' ? 'cilia_tabela_tempa_editado' : 'cilia_tabela_tempa') : 'cilia_manual')
+      : ((row?.dataset?.codigoTabela || row?.dataset?.codigoInterno || row?.dataset?.secaoHora) ? 'tabela_tempa' : 'manual'),
+    ciliaPieceIndex: row?.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row?.dataset?.ciliaPieceIndex || ''
+  };
+}
+
+function calcularServicoLinhaOS(row, descMO) {
+  const dados = dadosServicoLinhaOS(row);
+  const calc = OSU().calcularServicoMaoObra
+    ? OSU().calcularServicoMaoObra(dados, null, {
+        descMO,
+        veiculo: window._osVeiculoAtual?.(),
+        fallbackValorHora: window._osValorHoraCliente?.(),
+        usarHoraQuandoDisponivel: true
+      })
+    : {
+        tempo: dados.tempo,
+        valorHora: dados.valorHora,
+        valorHoraTabela: dados.valorHoraTabela,
+        valorBruto: dados.valor,
+        bruto: dados.valor,
+        valorFinal: +(dados.valor * (1 - numBR(descMO || 0))).toFixed(2),
+        descPct: descMO || 0,
+        usaCalculoHora: false
+      };
+  const valorInput = row?.querySelector?.('.serv-valor');
+  if (valorInput && calc.usaCalculoHora && document.activeElement !== valorInput) {
+    valorInput.value = calc.valorBruto.toFixed(2).replace('.', ',');
+  }
+  return Object.assign(dados, calc);
+}
+
 window.atualizarValorServicoPorHora = function(row) {
   if (!row) return;
-  const tempo = numBR(row.querySelector('.serv-tempo')?.value || 0);
-  const horaInput = row.querySelector('.serv-valor-hora');
-  const valorHora = horaInput ? numBR(horaInput.value || 0) : window._osValorHoraCliente();
-  const valorInput = row.querySelector('.serv-valor');
-  if (tempo > 0 && valorHora > 0 && valorInput && row.dataset.valorManual !== '1') {
-    valorInput.value = (tempo * valorHora).toFixed(2).replace('.', ',');
-  }
+  calcularServicoLinhaOS(row, descontoMaoObraAtualOS());
   window.calcOSTotal?.();
 };
 
@@ -1733,12 +1796,25 @@ window.renderServicoOSRow = function(s) {
   const ehGov = typeof window._osClienteGovernamental === 'function' && window._osClienteGovernamental();
   const dadosGov = ehGov && typeof window._osDadosGovernamental === 'function' ? window._osDadosGovernamental() : null;
   const descMO = dadosGov ? taxaDescontoOS(dadosGov.descMO || 0) : 0;
-  const vBruto = numBR(s.valor || 0);
-  const vFinal = +(vBruto * (1 - descMO)).toFixed(2);
+  const calcRender = OSU().calcularServicoMaoObra
+    ? OSU().calcularServicoMaoObra(s, null, {
+        descMO,
+        veiculo: window._osVeiculoAtual?.(),
+        fallbackValorHora: window._osValorHoraCliente?.(),
+        usarHoraQuandoDisponivel: true
+      })
+    : {
+        tempo: numBR(s.tempo || 0),
+        valorHora: numBR(s.valorHora || s.valorHoraSecao || 0),
+        valorBruto: numBR(s.valor || 0),
+        valorFinal: +(numBR(s.valor || 0) * (1 - descMO)).toFixed(2)
+      };
+  const vBruto = numBR(calcRender.valorBruto || calcRender.bruto || 0);
+  const vFinal = numBR(calcRender.valorFinal || 0);
   if (ehGov) {
     const resolvido = OSU().resolvePMSPServico?.(s, { veiculo: window._osVeiculoAtual?.(), fallbackValorHora: window._osValorHoraCliente?.() }) || {};
     const secaoKey = s.secaoHora || resolvido.secaoHora || '';
-    const valorHora = numBR(s.valorHora || s.valorHoraSecao || resolvido.valorHora || 0);
+    const valorHora = numBR(calcRender.valorHora || s.valorHora || s.valorHoraSecao || resolvido.valorHora || 0);
     div.dataset.secaoHora = secaoKey;
     div.dataset.secaoHoraLabel = s.secaoHoraLabel || resolvido.secaoHoraLabel || '';
     div.dataset.valorHoraSecao = s.valorHoraTabela || resolvido.valorHoraTabela || '';
@@ -2085,11 +2161,12 @@ window.calcOSTotal = function() {
     });
 
     document.querySelectorAll('#containerServicosOS > div').forEach(row => {
-        const vBruto = numBR(row.querySelector('.serv-valor')?.value || 0);
-        const vFinal = +(vBruto * (1 - descMO)).toFixed(2);
+        const calc = calcularServicoLinhaOS(row, descMO);
+        const vBruto = numBR(calc.valorBruto || calc.bruto || 0);
+        const vFinal = numBR(calc.valorFinal || 0);
         brutoServicos += vBruto;
-        const tempo = numBR(row.querySelector('.serv-tempo')?.value || 0);
-        const desc = row.querySelector('.serv-desc')?.value?.trim() || '';
+        const tempo = numBR(calc.tempo || 0);
+        const desc = String(calc.desc || '').trim();
         // Atualiza badge de desconto em tempo real
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
@@ -2126,11 +2203,12 @@ window.calcOSTotal = function() {
 
     // Serviços relacionados a peças importadas do Cília também entram no total e no resumo por seção
     document.querySelectorAll('#containerPecasOS .cilia-serv-relac').forEach(row => {
-        const vBruto = numBR(row.querySelector('.serv-valor')?.value || 0);
-        const vFinal = +(vBruto * (1 - descMO)).toFixed(2);
+        const calc = calcularServicoLinhaOS(row, descMO);
+        const vBruto = numBR(calc.valorBruto || calc.bruto || 0);
+        const vFinal = numBR(calc.valorFinal || 0);
         brutoServicos += vBruto;
-        const tempo = numBR(row.querySelector('.serv-tempo')?.value || 0);
-        const desc = row.querySelector('.serv-desc')?.value?.trim() || '';
+        const tempo = numBR(calc.tempo || 0);
+        const desc = String(calc.desc || '').trim();
         const descBox = row.querySelector('.serv-desc-val');
         const pctBox = row.querySelector('.serv-desc-pct');
         if (pctBox) pctBox.textContent = '-' + (descMO * 100).toFixed(1).replace('.', ',') + '%';
@@ -2237,28 +2315,30 @@ window.salvarOS = async function() {
 
   // Função local que lê uma linha de serviço e empurra pro array
   const _lerLinhaServico = (row) => {
-    const desc = row.querySelector('.serv-desc')?.value || '';
-    const valor = numBR(row.querySelector('.serv-valor')?.value || 0);
-    const tempoStr = row.querySelector('.serv-tempo')?.value || '';
-    const tempo = numBR(tempoStr) || 0;
-    const codigoInterno = row.dataset?.codigoInterno || '';
-    const codigoTabela = row.dataset?.codigoTabela || '';
-    const sistemaTabela = row.dataset?.sistemaTabela || '';
+    const calc = calcularServicoLinhaOS(row, descontoMaoObraAtualOS());
+    const desc = calc.desc || '';
+    const valor = numBR(calc.valorBruto || calc.bruto || 0);
+    const valorFinal = numBR(calc.valorFinal || 0);
+    const tempo = numBR(calc.tempo || 0);
+    const codigoInterno = calc.codigoInterno || row.dataset?.codigoInterno || '';
+    const codigoTabela = calc.codigoTabela || row.dataset?.codigoTabela || '';
+    const sistemaTabela = calc.sistemaTabela || row.dataset?.sistemaTabela || '';
     const tipoVeiculoTabela = row.dataset?.tipoVeiculoTabela || extrairTipoVeiculoTempaOS({ sistemaTabela, sistema: sistemaTabela, secaoHoraLabel: row.dataset?.secaoHoraLabel }, window._osVeiculoAtual?.() || {});
     if (tipoVeiculoTabela && !row.dataset.tipoVeiculoTabela) row.dataset.tipoVeiculoTabela = tipoVeiculoTabela;
-    const secaoHora = row.querySelector('.serv-secao-hora')?.value || row.dataset?.secaoHora || '';
+    const secaoHora = calc.secaoHora || row.querySelector('.serv-secao-hora')?.value || row.dataset?.secaoHora || '';
     const secaoInfo = secaoHora ? OSU().getPMSPValorHora?.(secaoHora) : null;
-    let valorHora = numBR(row.querySelector('.serv-valor-hora')?.value || row.dataset?.valorHoraSecao || (tempo > 0 ? valor / tempo : 0));
-    if (row.dataset?.valorManual === '1' && row.dataset?.valorHoraManual !== '1' && tempo > 0 && valor > 0) {
-      valorHora = +(valor / tempo).toFixed(2);
-    }
-    const valorHoraTabela = secaoInfo ? numBR(secaoInfo.valor) : numBR(row.dataset?.valorHoraSecao || 0);
-    const secaoHoraLabel = secaoInfo?.label || row.dataset?.secaoHoraLabel || '';
+    const valorHora = numBR(calc.valorHora || row.querySelector('.serv-valor-hora')?.value || row.dataset?.valorHoraSecao || (tempo > 0 ? valor / tempo : 0));
+    const valorHoraTabela = numBR(calc.valorHoraTabela || (secaoInfo ? secaoInfo.valor : row.dataset?.valorHoraSecao || 0));
+    const secaoHoraLabel = calc.secaoHoraLabel || secaoInfo?.label || row.dataset?.secaoHoraLabel || '';
     const valorHoraManual = row.dataset?.valorHoraManual === '1' || (valorHoraTabela > 0 && valorHora > 0 && Math.abs(valorHora - valorHoraTabela) > 0.009);
-    if (desc || valor > 0) {
+    if (desc || valor > 0 || valorFinal > 0 || tempo > 0) {
       servicos.push({
         desc,
         valor,
+        valorBruto: valor,
+        bruto: valor,
+        valorFinal,
+        total: valorFinal,
         tempo,
         codigoInterno,
         codigoTabela,
@@ -2276,7 +2356,7 @@ window.salvarOS = async function() {
           : 'manual',
         ciliaPieceIndex: row.closest?.('.cilia-peca-wrap')?.dataset?.ciliaPieceIndex || row.dataset?.ciliaPieceIndex || ''
       });
-      totalMaoObra += valor;
+      totalMaoObra += valorFinal;
     }
   };
 
@@ -3373,11 +3453,12 @@ window.gerarPDFOS = async function() {
   const resumoSecoesPDF = {};
   let totalServicos = 0;
   const _coletarServicoParaPDF = row => {
-    const desc = row.querySelector('.serv-desc')?.value?.trim() || '';
-    const tempo = numBR(row.querySelector('.serv-tempo')?.value || 0);
-    const valorHora = numBR(row.querySelector('.serv-valor-hora')?.value || row.dataset?.valorHoraSecao || (tempo ? numBR(row.querySelector('.serv-valor')?.value || 0) / tempo : 0));
-    const bruto = numBR(row.querySelector('.serv-valor')?.value || 0);
-    const final = +(bruto * (1 - descMO)).toFixed(2);
+    const calc = calcularServicoLinhaOS(row, descMO);
+    const desc = String(calc.desc || '').trim();
+    const tempo = numBR(calc.tempo || 0);
+    const valorHora = numBR(calc.valorHora || 0);
+    const bruto = numBR(calc.valorBruto || calc.bruto || 0);
+    const final = numBR(calc.valorFinal || 0);
     const sel = row.querySelector('.serv-secao-hora');
     const sistema = sel?.options?.[sel.selectedIndex]?.text?.replace(/\s+-\s+R\$.*/, '') || row.dataset.secaoHoraLabel || row.dataset.sistemaTabela || '';
     const meta = metaServicoResumoOS({
@@ -5048,11 +5129,10 @@ function _ciliaAplicarItemTempaNaLinha(row, itemTempa, opts = {}) {
 
 window._ciliaRecalcularServicoRelacionado = function(row) {
   if (!row) return;
-  const tempo = numBR(row.querySelector('.serv-tempo')?.value || 0);
-  const valorHora = numBR(row.querySelector('.serv-valor-hora')?.value || 0);
   const valorInput = row.querySelector('.serv-valor');
   if (valorInput && row.dataset.valorManual !== '1') {
-    valorInput.value = (tempo * valorHora).toFixed(2).replace('.', ',');
+    const calc = calcularServicoLinhaOS(row, descontoMaoObraAtualOS());
+    valorInput.value = numBR(calc.valorBruto || calc.bruto || 0).toFixed(2).replace('.', ',');
   }
   if (typeof window.calcOSTotal === 'function') window.calcOSTotal();
 };

@@ -546,7 +546,7 @@
     if(!['Boleto','Parcelado'].includes(forma)){ renderParcels([]); return; }
     const n = parseInt(getVal('nfParcelas') || '1',10) || 1;
     const base = getVal('nfVenc') || isoToday();
-    const total = calcTotalNumber();
+    const total = calcTotaisNF().totalFiscal;
     const dups = [];
     const baseDate = new Date(base + 'T12:00:00');
     for(let i=0;i<n;i++){
@@ -569,11 +569,12 @@
     return Math.round(total*100)/100;
   }
   W.calcNFTotal = function(){
-    const total = calcTotalNumber();
+    const totais = calcTotaisNF();
+    const total = totais.totalFiscal;
     const el = $('nfTotal'); if(el) el.textContent = fmtBR(total);
     const current = W._nfeProData;
-    if(current && current.totais && current.totais.vNF && Math.abs(total - current.totais.vNF) > 0.02){
-      if(el) el.title = `Atenção: total dos itens (${fmtBR(total)}) difere do total fiscal da NF (${fmtBR(current.totais.vNF)}).`;
+    if(current && current.totais && current.totais.vNF && Math.abs(totais.totalItens - current.totais.vNF) > 0.02){
+      if(el) el.title = `Atenção: total dos itens (${fmtBR(totais.totalItens)}) difere do total fiscal da NF (${fmtBR(current.totais.vNF)}). O financeiro usa o total fiscal.`;
     }
     if($('nfParcelasBox')?.style.display === 'block' && !(W._nfeProData?.cobranca?.duplicatas || []).length) gerarParcelasManuais();
   };
@@ -610,6 +611,64 @@
       Natureza: <b>${esc(nfe.natureza)}</b> · Protocolo: <b>${esc(nfe.protocolo)}</b> · Status: <b>${esc(nfe.statusAutorizacao)} ${esc(nfe.motivoAutorizacao)}</b><br>
       Produtos: <b>R$ ${fmtBR(nfe.totais.vProd)}</b> · Desc.: <b>R$ ${fmtBR(nfe.totais.vDesc)}</b> · IPI: <b>R$ ${fmtBR(nfe.totais.vIPI)}</b> · Total NF: <b>R$ ${fmtBR(nfe.totais.vNF)}</b>`;
   }
+  function ensureTotaisFiscaisBoxNF(){
+    let box = $('nfTotaisFiscaisBox');
+    if(!box){
+      box = D.createElement('div');
+      box.id = 'nfTotaisFiscaisBox';
+      box.style.cssText = 'border:1px solid rgba(255,184,0,.28);background:rgba(255,184,0,.045);border-radius:4px;padding:10px;margin:10px 0;font-family:var(--fm);font-size:.72rem;';
+      const anchor = $('containerItensNF')?.parentElement;
+      anchor?.insertAdjacentElement('afterend', box);
+    }
+    if(!box.dataset.rendered){
+      box.dataset.rendered = '1';
+      box.innerHTML = `
+      <div style="font-family:var(--fd);font-weight:800;margin-bottom:8px;color:var(--warn)">TOTAIS FISCAIS / DESPESAS ACESSORIAS</div>
+      <div class="form-row cols-5" style="align-items:end;margin:0;">
+        <div class="form-group" style="margin:0;"><label class="j-label">Frete</label><input class="j-input" id="nfFrete" inputmode="decimal" value="${esc($('nfFrete')?.value || '0,00')}" oninput="window._nfeTotalFiscalManual=false;window.calcNFTotal()"></div>
+        <div class="form-group" style="margin:0;"><label class="j-label">Seguro</label><input class="j-input" id="nfSeguro" inputmode="decimal" value="${esc($('nfSeguro')?.value || '0,00')}" oninput="window._nfeTotalFiscalManual=false;window.calcNFTotal()"></div>
+        <div class="form-group" style="margin:0;"><label class="j-label">Outras despesas</label><input class="j-input" id="nfOutrasDespesas" inputmode="decimal" value="${esc($('nfOutrasDespesas')?.value || '0,00')}" oninput="window._nfeTotalFiscalManual=false;window.calcNFTotal()"></div>
+        <div class="form-group" style="margin:0;"><label class="j-label">Desconto fiscal extra</label><input class="j-input" id="nfDescontoFiscal" inputmode="decimal" value="${esc($('nfDescontoFiscal')?.value || '0,00')}" oninput="window._nfeTotalFiscalManual=false;window.calcNFTotal()"></div>
+        <div class="form-group" style="margin:0;"><label class="j-label">Total fiscal da NF</label><input class="j-input" id="nfTotalFiscal" inputmode="decimal" value="${esc($('nfTotalFiscal')?.value || '0,00')}" oninput="window._nfeTotalFiscalManual=true;window.calcNFTotal()" title="Use o total fiscal real do XML ou da nota manual. O financeiro usa este valor."></div>
+      </div>
+      <small id="nfTotaisFiscaisHint" style="display:block;margin-top:8px;color:var(--muted);font-family:var(--fm);font-size:.64rem;">Total fiscal = itens + frete + seguro + outras despesas - desconto fiscal extra. XML preserva o total fiscal original.</small>`;
+    }
+    return box;
+  }
+  function setTotaisFiscaisNF(totais, opts = {}){
+    ensureTotaisFiscaisBoxNF();
+    setVal('nfFrete', fmtBR(totais?.vFrete || totais?.frete || 0));
+    setVal('nfSeguro', fmtBR(totais?.vSeg || totais?.seguro || 0));
+    setVal('nfOutrasDespesas', fmtBR(totais?.vOutro || totais?.outrasDespesas || 0));
+    setVal('nfDescontoFiscal', fmtBR(totais?.descontoFiscalExtra || 0));
+    const totalFiscal = Number(totais?.vNF ?? totais?.totalNF ?? 0) || 0;
+    if(totalFiscal || opts.forceTotal) setVal('nfTotalFiscal', fmtBR(totalFiscal));
+    W._nfeTotalFiscalManual = opts.manualTotal === true;
+  }
+  function calcTotaisNF(){
+    ensureTotaisFiscaisBoxNF();
+    const totalItens = calcTotalNumber();
+    const frete = parseNum($('nfFrete')?.value);
+    const seguro = parseNum($('nfSeguro')?.value);
+    const outras = parseNum($('nfOutrasDespesas')?.value);
+    const descontoFiscal = parseNum($('nfDescontoFiscal')?.value);
+    const calculado = Math.max(totalItens + frete + seguro + outras - descontoFiscal, 0);
+    if(!W._nfeTotalFiscalManual) setVal('nfTotalFiscal', fmtBR(calculado));
+    const totalFiscal = parseNum($('nfTotalFiscal')?.value) || calculado;
+    const hint = $('nfTotaisFiscaisHint');
+    if(hint) hint.textContent = `Itens: R$ ${fmtBR(totalItens)} | Frete: R$ ${fmtBR(frete)} | Seguro: R$ ${fmtBR(seguro)} | Outras: R$ ${fmtBR(outras)} | Desconto extra: R$ ${fmtBR(descontoFiscal)} | Total fiscal usado no financeiro: R$ ${fmtBR(totalFiscal)}`;
+    return {
+      totalItens: Math.round(totalItens * 100) / 100,
+      frete: Math.round(frete * 100) / 100,
+      seguro: Math.round(seguro * 100) / 100,
+      outrasDespesas: Math.round(outras * 100) / 100,
+      descontoFiscalExtra: Math.round(descontoFiscal * 100) / 100,
+      totalCalculado: Math.round(calculado * 100) / 100,
+      totalFiscal: Math.round(totalFiscal * 100) / 100
+    };
+  }
+  W.thiaNFSetTotaisFiscais = setTotaisFiscaisNF;
+  W.thiaNFCalcTotaisFiscais = calcTotaisNF;
   function ensureTipoOperacaoNF(nfe){
     let box = $('nfTipoOperacaoBox');
     if(!box){
@@ -758,6 +817,7 @@
     }
     if($('nfParcelas')) { if(!$('nfParcelas').querySelector('option[value="1"]')) $('nfParcelas').insertAdjacentHTML('afterbegin','<option value="1">1x</option>'); $('nfParcelas').value='1'; $('nfParcelas').onchange = gerarParcelasManuais; }
     if($('nfVenc')) $('nfVenc').onchange = gerarParcelasManuais;
+    setTotaisFiscaisNF({ vFrete:0, vSeg:0, vOutro:0, descontoFiscalExtra:0, vNF:0 }, { manualTotal:false, forceTotal:true });
     mostrarAgrupamentoPeriodoNF(false);
     if(typeof W.popularSelects === 'function') W.popularSelects();
     ensureTipoOperacaoNF(null); setTipoOperacaoNF('entrada');
@@ -777,6 +837,7 @@
         const dup = $('nfDuplicadaAviso'); if(dup) { dup.style.display='none'; dup.innerHTML=''; }
         W._nfeProData = nfe;
         setVal('nfNumero', nfe.numero); setVal('nfData', nfe.dataEmissao || isoToday());
+        setTotaisFiscaisNF(nfe.totais || {}, { manualTotal:true, forceTotal:true });
         preencherFornecedorTemporario(nfe.fornecedor);
         if($('containerItensNF')) $('containerItensNF').innerHTML = nfe.itens.map(rowTemplate).join('');
         ensureTipoOperacaoNF(nfe); setTipoOperacaoNF('entrada');
@@ -1376,15 +1437,30 @@
       mostrarNFeDuplicada(nfe || { numero:getVal('nfNumero'), serie:'', chave:'' }, duplicada);
       return;
     }
-    const totalItens = Math.round(itens.reduce((s,i)=>s+(Number(i.valorLiquido)||0),0)*100)/100;
-    const totalNF = nfe?.totais?.vNF || totalItens;
+    const totaisTela = calcTotaisNF();
+    const totalItens = totaisTela.totalItens;
+    const totalNF = totaisTela.totalFiscal || nfe?.totais?.vNF || totalItens;
     const nfRef = W.db.collection('notas_fiscais_entrada').doc();
     const tipoOperacao = tipoOperacaoNF();
     const nfPayload = {
       tenantId: W.J.tid, tipo:'entrada', tipoOperacao, tipoNF:tipoOperacao, origem:nfe?'xml_nfe':'manual', fornecedorId,
       numero: getVal('nfNumero') || nfe?.numero || '', serie:nfe?.serie || '', chave:nfe?.chave || '', natureza:nfe?.natureza || '',
       dataNF: getVal('nfData') || nfe?.dataEmissao || isoToday(), totalNF, totalItens,
-      totaisFiscais: nfe?.totais || { vNF:totalNF }, cobranca: nfe?.cobranca || {}, pagamentos:nfe?.pagamentos || [], fornecedorSnapshot:nfe?.fornecedor || null,
+      despesasAcessorias: {
+        frete: totaisTela.frete,
+        seguro: totaisTela.seguro,
+        outrasDespesas: totaisTela.outrasDespesas,
+        descontoFiscalExtra: totaisTela.descontoFiscalExtra
+      },
+      totaisFiscais: Object.assign({}, nfe?.totais || {}, {
+        totalItens,
+        vFrete: totaisTela.frete,
+        vSeg: totaisTela.seguro,
+        vOutro: totaisTela.outrasDespesas,
+        descontoFiscalExtra: totaisTela.descontoFiscalExtra,
+        vNF: totalNF,
+        totalCalculado: totaisTela.totalCalculado
+      }), cobranca: nfe?.cobranca || {}, pagamentos:nfe?.pagamentos || [], fornecedorSnapshot:nfe?.fornecedor || null,
       itens, rawXml:nfe?.rawXml || '', createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()
     };
     const fornecedorNome = fornecedorNomeNF(nfe, fornecedorId);
